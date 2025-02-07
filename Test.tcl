@@ -1,66 +1,58 @@
 # Create a new simulator
 set ns [new Simulator]
 
-# Define the wireless trace file
-set tracefile [open out.tr w]
-$ns trace-all $tracefile
+# Set up the wireless channel
+set channel [new Channel/WirelessChannel]
 
-# Define the NAM file for visualization
-set namfile [open out.nam w]
-$ns namtrace-all-wireless $namfile 500 500  ;# Wireless scenario with 500x500 area
+# Define the general operational parameters
+set prop [new Propagation/TwoRayGround]
+set netif [new Phy/WirelessPhy]
+set mac [new Mac/802_11]
+set ifq [new Queue/DropTail/PriQueue]
+set ll [new LL]
+set ant [new Antenna/OmniAntenna]
+set god [new God]
+
+# Open the NAM trace file
+set nf [open out.nam w]
+$ns namtrace-all-wireless $nf 500 500  ;# Define a 500x500 simulation area
 
 # Define a 'finish' procedure
 proc finish {} {
-    global ns tracefile namfile
+    global ns nf
     $ns flush-trace
-    close $tracefile
-    close $namfile
+    close $nf
     exec nam out.nam &
     exit 0
 }
 
-# Define wireless channel, propagation model, and MAC layer
-set channel [new Channel/WirelessChannel]
-set prop [new Propagation/TwoRayGround]
-set netif [new Phy/WirelessPhy]
-set mac [new Mac/802_11]
-set queue [new Queue/DropTail/PriQueue]
-set ll [new LL]
-set antenna [new Antenna/OmniAntenna]
-set ifq [new Queue/DropTail/PriQueue]
-
-# Create nodes (n0 to n4) with wireless capabilities
-set nodes {}
+# Create five wireless nodes (n0, n1, n2, n3, n4)
 for {set i 0} {$i < 5} {incr i} {
-    set node [$ns node]
-    $node set X_ [expr $i * 100]   ;# Spread nodes evenly
-    $node set Y_ [expr 250]        ;# Keep nodes at the same Y position
-    $node set Z_ 0
-    $node set channel_ $channel
-    $node set propInstance_ $prop
-    $node set netif_ $netif
-    $node set mac_ $mac
-    $node set ifq_ $ifq
-    $node set ll_ $ll
-    $node set antenna_ $antenna
-    $node set adhocRouting AODV    ;# Use AODV routing for ad-hoc communication
-    lappend nodes $node
+    set n($i) [$ns node]
+    $n($i) set X_ [expr 100 + ($i * 50)]   ;# Place nodes in a fixed pattern
+    $n($i) set Y_ 250
+    $n($i) set Z_ 0
+
+    $n($i) random-motion 0  ;# Disable mobility
+
+    # Set up wireless parameters for each node
+    $n($i) set channel_ $channel
+    $n($i) set prop_ $prop
+    $n($i) set netif_ $netif
+    $n($i) set mac_ $mac
+    $n($i) set ifq_ $ifq
+    $n($i) set ll_ $ll
+    $n($i) set antenna_ $ant
+    $n($i) set adhocRouting AODV
 }
 
-# Extract nodes from the list
-set n0 [lindex $nodes 0]
-set n1 [lindex $nodes 1]
-set n2 [lindex $nodes 2]
-set n3 [lindex $nodes 3]
-set n4 [lindex $nodes 4]
-
-# Setup a TCP connection (Node 3 → Node 4)
+# Define the TCP connection (Node 3 → Node 4)
 set tcp [new Agent/TCP]
 $tcp set class_ 2
-$ns attach-agent $n3 $tcp
+$ns attach-agent $n(3) $tcp
 
 set sink [new Agent/TCPSink]
-$ns attach-agent $n4 $sink
+$ns attach-agent $n(4) $sink
 $ns connect $tcp $sink
 $tcp set fid_ 1
 
@@ -71,10 +63,10 @@ $ftp set type_ FTP
 
 # Setup a UDP connection (Node 1 → Node 3)
 set udp [new Agent/UDP]
-$ns attach-agent $n1 $udp
+$ns attach-agent $n(1) $udp
 
 set null [new Agent/Null]
-$ns attach-agent $n3 $null
+$ns attach-agent $n(3) $null
 $ns connect $udp $null
 $udp set fid_ 2
 
@@ -93,7 +85,7 @@ $ns at 4.0 "$ftp stop"
 $ns at 4.5 "$cbr stop"
 
 # Detach TCP and Sink agents
-$ns at 4.5 "$ns detach-agent $n3 $tcp ; $ns detach-agent $n4 $sink"
+$ns at 4.5 "$ns detach-agent $n(3) $tcp ; $ns detach-agent $n(4) $sink"
 
 # Call the finish procedure after 5 seconds
 $ns at 5.0 "finish"
