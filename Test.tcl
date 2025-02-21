@@ -1,6 +1,9 @@
-# wrls1.tcl
-# A 5-node example for ad-hoc simulation with AODV
-# Modified based on original script by Dr. Idris Skloul Ibrahim
+# A 5-node wireless ad-hoc simulation with AODV,
+# reconfigured so that:
+#   - Node 4 connects to Node 0 and Node 1,
+#   - Node 0 and Node 1 connect to Node 2,
+#   - Node 2 connects to Node 3.
+# Original script by Dr. Idris Skloul Ibrahim (modified version)
 
 # Define options
 set val(chan)           Channel/WirelessChannel    ;# channel type
@@ -18,9 +21,9 @@ set val(y)              400                        ;# Y dimension of topography
 set val(stop)           150                        ;# Simulation end time
 
 set ns          [new Simulator]
-set tracefd     [open $val(rp)_trace_file_5_nodes.tr w]
+set tracefd     [open $val(rp)_trace_file_custom.tr w]
 set windowVsTime2 [open win.tr w] 
-set namtrace    [open simwrls.nam w]    
+set namtrace    [open simwrls_custom.nam w]    
 
 $ns trace-all $tracefd
 $ns namtrace-all-wireless $namtrace $val(x) $val(y)
@@ -31,7 +34,7 @@ $topo load_flatgrid $val(x) $val(y)
 
 create-god $val(nn)
 
-# Configure the nodes
+# Configure the nodes with wireless parameters
 $ns node-config -adhocRouting $val(rp) \
                 -llType $val(ll) \
                 -macType $val(mac) \
@@ -47,52 +50,38 @@ $ns node-config -adhocRouting $val(rp) \
                 -macTrace OFF \
                 -movementTrace ON
 
-# Create and configure nodes
+# Create and configure 5 nodes
 for {set i 0} {$i < $val(nn)} { incr i } {
     set node_($i) [$ns node]    
 }
 
-# Provide initial location of mobile nodes
+# Revert to the original node positions:
+# Node 4 at (100, 200, 0)
 $node_(4) set X_ 100.0
 $node_(4) set Y_ 200.0
 $node_(4) set Z_ 0.0
 
+# Node 0 at (200, 300, 0)
 $node_(0) set X_ 200.0
 $node_(0) set Y_ 300.0
 $node_(0) set Z_ 0.0
 
+# Node 1 at (200, 100, 0)
 $node_(1) set X_ 200.0
 $node_(1) set Y_ 100.0
 $node_(1) set Z_ 0.0
 
+# Node 2 at (300, 200, 0)
 $node_(2) set X_ 300.0
 $node_(2) set Y_ 200.0
 $node_(2) set Z_ 0.0
 
+# Node 3 at (400, 200, 0)
 $node_(3) set X_ 400.0
 $node_(3) set Y_ 200.0
 $node_(3) set Z_ 0.0
 
-
-# Node Movements
-#$ns at 10.0 "$node_(0) setdest 200.0 200.0 3.0"
-#$ns at 15.0 "$node_(1) setdest 300.0 250.0 4.0"
-#$ns at 20.0 "$node_(3) setdest 250.0 300.0 3.0"
-#$ns at 25.0 "$node_(2) setdest 260.0 220.0 2.5"
-#$ns at 30.0 "$node_(4) setdest 250.0 150.0 3.5"
-
-# TCP connection between Node 0 and Node 1 through Node 4
-set tcp [new Agent/TCP/Newreno]
-$tcp set class_ 2
-set sink [new Agent/TCPSink]
-$ns attach-agent $node_(3) $tcp
-$ns attach-agent $node_(4) $sink
-$ns connect $tcp $sink
-set ftp [new Application/FTP]
-$ftp attach-agent $tcp
-$ns at 10.0 "$ftp start"
-
-# Function to plot window size
+# Define a procedure to plot TCP window size over time
 proc plotWindow {tcpSource file} {
     global ns
     set time 0.01
@@ -101,9 +90,42 @@ proc plotWindow {tcpSource file} {
     puts $file "$now $cwnd"
     $ns at [expr $now+$time] "plotWindow $tcpSource $file"
 }
-$ns at 10.1 "plotWindow $tcp $windowVsTime2"
 
-# Define node initial position in NAM
+# --- Setup multiple TCP/FTP connections between nodes ---
+# The connections are as follows:
+#   Flow 1: Node4 -> Node0
+#   Flow 2: Node4 -> Node1
+#   Flow 3: Node0 -> Node2
+#   Flow 4: Node1 -> Node2
+#   Flow 5: Node2 -> Node3
+
+# Helper procedure to setup a TCP/FTP flow from source node to destination node
+proc setupTCPFlow {src dst startTime fid} {
+    global ns node_ windowVsTime2
+    set tcp [new Agent/TCP/Newreno]
+    $tcp set class_ 2
+    set sink [new Agent/TCPSink]
+    $ns attach-agent $src $tcp
+    $ns attach-agent $dst $sink
+    $ns connect $tcp $sink
+    $tcp set fid_ $fid
+    set ftp [new Application/FTP]
+    $ftp attach-agent $tcp
+    $ns at $startTime "$ftp start"
+    # Optionally monitor the TCP window (only for the first flow here)
+    if {$fid == 1} {
+        $ns at [expr $startTime+0.1] "plotWindow $tcp $windowVsTime2"
+    }
+}
+
+# Setting up the flows with staggered start times
+setupTCPFlow $node_(4) $node_(0) 10.0 1    ;# Node4 -> Node0
+setupTCPFlow $node_(4) $node_(1) 12.0 2    ;# Node4 -> Node1
+setupTCPFlow $node_(0) $node_(2) 14.0 3    ;# Node0 -> Node2
+setupTCPFlow $node_(1) $node_(2) 16.0 4    ;# Node1 -> Node2
+setupTCPFlow $node_(2) $node_(3) 18.0 5    ;# Node2 -> Node3
+
+# Define node initial positions in NAM for visualization
 for {set i 0} {$i < $val(nn)} { incr i } {
     $ns initial_node_pos $node_($i) 30
 }
@@ -116,14 +138,14 @@ for {set i 0} {$i < $val(nn)} { incr i } {
 # Ending NAM and the simulation
 $ns at $val(stop) "$ns nam-end-wireless $val(stop)"
 $ns at $val(stop) "stop"
-$ns at 150.01 "puts \"End simulation\" ; $ns halt"
+$ns at [expr $val(stop)+0.01] "puts \"End simulation\" ; $ns halt"
 
 proc stop {} {
     global ns tracefd namtrace
     $ns flush-trace
     close $tracefd
     close $namtrace
-    exec nam simwrls.nam &
+    exec nam simwrls_custom.nam &
     exit 0
 }
 
